@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple
 class VocabDB:
     def __init__(self, db_path: str):
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -63,9 +63,9 @@ class VocabDB:
                 encounter_count = encounter_count + 1,
                 last_seen_at = datetime('now','localtime'),
                 context = excluded.context
+            RETURNING id
         """, (word, translation, context))
         self._conn.commit()
-        cur = self._conn.execute("SELECT id FROM vocabulary WHERE word = ?", (word,))
         return cur.fetchone()[0]
 
     def get_mastered_words(self) -> List[str]:
@@ -128,6 +128,15 @@ class VocabDB:
             "SELECT * FROM vocabulary WHERE id = ?", (vocab_id,)
         ).fetchone()
         return dict(row) if row else None
+
+    def set_mastered_by_word(self, word: str, mastered: bool) -> bool:
+        row = self._conn.execute(
+            "SELECT id FROM vocabulary WHERE word = ?", (word,)
+        ).fetchone()
+        if not row:
+            return False
+        self.set_mastered(row["id"], mastered)
+        return True
 
     def delete_vocabulary(self, vocab_id: int):
         self._conn.execute("DELETE FROM vocabulary WHERE id = ?", (vocab_id,))

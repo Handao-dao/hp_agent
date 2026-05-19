@@ -1,10 +1,10 @@
 import json
-import re
 from typing import List, Dict
 from dataclasses import dataclass
 
-from hello_agents import HelloAgentsLLM, SimpleAgent
+from hello_agents import SimpleAgent
 from hello_agents.tools import ToolRegistry
+from hp_agent.utils import extract_json
 
 # 1. 定义数据结构
 @dataclass
@@ -187,7 +187,7 @@ class AnnotatorService:
         )
         
         # 解析 JSON
-        parsed_payload = self._extract_json(response)
+        parsed_payload = extract_json(response)
         
         # 验证并创建返回对象
         vocab_items = []
@@ -201,29 +201,6 @@ class AnnotatorService:
             )
             
         return AnnotationResult(
-            annotated_text=parsed_payload.get("annotated_text", text), # fallback 为原文本
+            annotated_text=parsed_payload.get("annotated_text", text),
             vocabulary=vocab_items
         )
-    
-    def _extract_json(self, response: str) -> dict:
-        """从 Agent 响应中提取 JSON 对象 (Dict)"""
-        # 这里提取第一个 { 到最后一个 } 之间的内容
-		# json.loads再把提取的内容转换成py字典，分为annotated_text 和 extracted_vocabulary两个部分
-        response = response.strip()
-
-		# 优先尝试直接解析完整响应。只有完整解析失败，才用正则兜底。
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            pass
-
-        json_match = re.search(r"\{.*\}", response, re.DOTALL)
-        if not json_match:
-            raise ValueError(f"无法从响应中提取 JSON。\n完整响应: {response}")
-
-        json_str = json_match.group(0)
-
-        try:
-            return json.loads(json_str)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"JSON 解析失败: {e}\nAgent 返回内容: {json_str}")

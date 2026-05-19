@@ -15,6 +15,22 @@
 </template>
 
 <style>
+@font-face {
+  font-family: 'Bookerly';
+  src: url('/fonts/Bookerly.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bookerly';
+  src: url('/fonts/Bookerly-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* 全局重置 */
 *,
 *::before,
@@ -48,6 +64,16 @@ body {
   font-size: 0.9em;
   margin-left: 4px;
   opacity: 0.8;
+}
+
+.text-word {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.text-word:hover {
+  opacity: 0.7;
+  border-bottom: 1px dashed rgba(184, 134, 11, 0.5);
 }
 </style>
 

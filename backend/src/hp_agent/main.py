@@ -17,6 +17,7 @@ from hp_agent.agent1 import AnnotatorService
 from hp_agent.agent2 import WordLookupService
 from hp_agent.sse_service import DocumentProcessor
 from hp_agent.vocab_db import VocabDB
+from hp_agent.utils import sse_event
 
 # ==============================
 # 基础配置
@@ -56,12 +57,27 @@ doc_processor = DocumentProcessor(annotator_svc)
 vocab_db = VocabDB(os.getenv("VOCAB_DB_PATH", "./data/harry_potter_vocab.db"))
 
 
+@app.on_event("startup")
+async def startup():
+    async def periodic_cleanup():
+        while True:
+            await asyncio.sleep(300)
+            cleanup_expired_tasks()
+    asyncio.create_task(periodic_cleanup())
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    vocab_db._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    vocab_db.close()
+
+
 # ==============================
 # 请求模型
 # ==============================
 class CreateProcessTaskRequest(BaseModel):
-    text: str = Field(..., description="需要处理的长文本")
-    level: str = Field(default="intermediate", description="读者水平: beginner/intermediate/advanced")
+    text: str = Field(..., max_length=500000, description="需要处理的长文本（上限约 50000 词）")
+    level: str = Field(default="intermediate", pattern="^(beginner|intermediate|advanced)$", description="读者水平")
 
 
 class SetMasteredRequest(BaseModel):
@@ -87,13 +103,6 @@ class AddVocabRequest(BaseModel):
 process_tasks: Dict[str, dict] = {}
 TASK_EXPIRE_MINUTES = 30
 
-def sse_event(payload: dict) -> str:
-    """
-    统一封装 SSE 数据格式。
-    """
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-
 def _maybe_save_completed(event: str, task_id: str, original_text: str):
     """检测 SSE completed 事件并自动保存到 SQLite"""
     if not event.startswith("data: "):
@@ -108,12 +117,15 @@ def _maybe_save_completed(event: str, task_id: str, original_text: str):
 
     total_vocab = data.get("total_vocab", [])
     annotated_text = data.get("annotated_text", "")
-    for v in total_vocab:
-        vocab_db.upsert_vocabulary(
-            v.get("word", ""), v.get("translation", ""), v.get("context", "")
-        )
-    vocab_db.save_history(task_id, original_text, annotated_text)
-    logger.info(f"已保存历史记录: task_id={task_id}, vocab_count={len(total_vocab)}")
+    try:
+        for v in total_vocab:
+            vocab_db.upsert_vocabulary(
+                v.get("word", ""), v.get("translation", ""), v.get("context", "")
+            )
+        vocab_db.save_history(task_id, original_text, annotated_text)
+        logger.info(f"已保存历史记录: task_id={task_id}, vocab_count={len(total_vocab)}")
+    except Exception:
+        logger.exception(f"保存翻译结果失败: task_id={task_id}")
 
 
 def cleanup_expired_tasks():
@@ -232,6 +244,17 @@ async def add_vocabulary(request: AddVocabRequest):
         request.word, request.translation, request.context
     )
     return {"id": vocab_id, "ok": True}
+
+
+class MarkByWordRequest(BaseModel):
+    word: str = Field(..., description="生词")
+    mastered: bool = Field(..., description="是否已掌握")
+
+
+@app.post("/api/vocabulary/mark-by-word")
+async def mark_by_word(request: MarkByWordRequest):
+    found = vocab_db.set_mastered_by_word(request.word, request.mastered)
+    return {"ok": True, "found": found}
 
 
 # ==============================

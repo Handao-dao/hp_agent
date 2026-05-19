@@ -12,6 +12,16 @@ export async function fetchVocabulary({ search = '', mastered = undefined, limit
   return res.json()
 }
 
+export async function setMasteredByWord(word, mastered) {
+  const res = await fetch(`${BASE}/mark-by-word`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ word, mastered }),
+  })
+  if (!res.ok) throw new Error(`标记失败: ${res.status}`)
+  return res.json()
+}
+
 export async function setMastered(vocabId, mastered) {
   const res = await fetch(`${BASE}/${vocabId}/master`, {
     method: 'PATCH',
@@ -29,6 +39,6 @@ export async function deleteVocabulary(vocabId) {
 }
 
 export async function fetchMasteredWords() {
-  const { items } = await fetchVocabulary({ mastered: 1, limit: 500 })
+  const { items } = await fetchVocabulary({ mastered: 1, limit: 5000 })
   return new Set(items.map((v) => v.word.toLowerCase()))
 }

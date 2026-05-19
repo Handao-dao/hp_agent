@@ -2,13 +2,15 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useReadingStream } from '../composables/useReadingStream'
 import { formatAnnotatedText } from '../utils/formatText'
-import { fetchMasteredWords } from '../api/vocabulary'
+import { setMasteredByWord } from '../api/vocabulary'
 import { lookupWord, addVocabToDB } from '../api/lookup'
+import { useMasteredWords } from '../composables/useMasteredWords'
 
 const LEVEL_LABELS = { beginner: '初级', intermediate: '中级', advanced: '高级' }
 
 const inputText = ref('')
-const masteredWords = ref(new Set())
+const masteredWords = useMasteredWords()
+const manuallyAnnotated = ref(new Map())
 const level = ref(localStorage.getItem('hp_level') || 'intermediate')
 
 watch(level, (val) => localStorage.setItem('hp_level', val))
@@ -23,21 +25,16 @@ const {
 } = useReadingStream()
 
 const formattedHtml = computed(() => {
-  return formatAnnotatedText(annotatedText.value, masteredWords.value)
+  return formatAnnotatedText(annotatedText.value, masteredWords.value, manuallyAnnotated.value)
 })
 
 const handleSubmit = async () => {
   const text = inputText.value.trim()
 
-  if (!text || isProcessing.value) {
-    return
-  }
-
-  inputText.value = ''
+  if (!text || isProcessing.value) return
 
   await startProcessStream(text, level.value)
-
-  await nextTick()
+  inputText.value = ''
 }
 
 const handleKeydown = (event) => {
@@ -54,29 +51,58 @@ const bubbleWord = ref('')
 const bubbleSentence = ref('')
 const bubbleIsAnnotated = ref(false)
 const bubbleResult = ref(null)
+const bubbleAddState = ref('idle')
+const bubbleStyle = ref({})
+
+function calcBubbleStyle(el) {
+  const rect = el.getBoundingClientRect()
+  const bubbleH = 200
+  const bubbleW = 420
+  let top = rect.bottom + 8
+  // 如果词在视口下半部分，气泡向上弹出
+  if (rect.bottom > window.innerHeight * 0.6) {
+    top = rect.top - bubbleH - 8
+    if (top < 0) top = 8
+  }
+  let left = rect.left + rect.width / 2
+  const halfW = Math.min(bubbleW / 2, (window.innerWidth - 48) / 2)
+  if (left - halfW < 24) left = halfW + 24
+  if (left + halfW > window.innerWidth - 24) left = window.innerWidth - halfW - 24
+  return {
+    position: 'fixed',
+    top: top + 'px',
+    left: left + 'px',
+    transform: 'translateX(-50%)',
+    width: bubbleW + 'px',
+    maxWidth: 'calc(100vw - 48px)',
+  }
+}
 
 function extractSentence(el) {
-  const container = document.querySelector('.reading-content')
-  if (!container) return ''
-  const allWords = [...container.querySelectorAll('[data-word]')]
-  const idx = allWords.indexOf(el)
+  const parent = el.parentNode
+  if (!parent) return ''
+  const nodes = [...parent.childNodes]
+
+  let idx = nodes.indexOf(el)
   if (idx === -1) return ''
 
-  // 向前找句子开头
+  // 向左扫描到句子开头
   let start = idx
-  while (start > 0) {
-    const prevText = allWords[start - 1].textContent
-    if (/[.!?]$/.test(prevText)) break
-    start--
+  for (let i = idx - 1; i >= 0; i--) {
+    const t = (nodes[i].textContent || '').trim()
+    if (/[.!?]$/.test(t)) { start = i + 1; break }
+    if (i === 0) start = 0
   }
-  // 向后找句子结尾
+
+  // 向右扫描到句子结尾
   let end = idx
-  while (end < allWords.length - 1) {
-    const curText = allWords[end].textContent
-    if (/[.!?]$/.test(curText)) break
-    end++
+  for (let i = idx; i < nodes.length; i++) {
+    const t = (nodes[i].textContent || '').trim()
+    if (i > idx && /[.!?]$/.test(t)) { end = i; break }
+    if (i === nodes.length - 1) end = i
   }
-  return allWords.slice(start, end + 1).map(s => s.textContent).join(' ')
+
+  return nodes.slice(start, end + 1).map(n => (n.textContent || '').trim()).join(' ')
 }
 
 async function handleContentClick(e) {
@@ -93,6 +119,8 @@ async function handleContentClick(e) {
   bubbleSentence.value = extractSentence(wordEl)
   bubbleIsAnnotated.value = isAnnotated
   bubbleResult.value = null
+  bubbleAddState.value = 'idle'
+  bubbleStyle.value = calcBubbleStyle(wordEl)
   bubbleVisible.value = true
   bubbleLoading.value = true
 
@@ -108,17 +136,42 @@ async function handleContentClick(e) {
 
 async function addToVocabFromBubble() {
   if (!bubbleResult.value) return
-  const { word, word_cn } = bubbleResult.value
-  await addVocabToDB(word, word_cn, bubbleSentence.value)
-  bubbleIsAnnotated.value = true
+  bubbleAddState.value = 'loading'
+  try {
+    await addVocabToDB(
+      bubbleResult.value.word,
+      bubbleResult.value.word_cn,
+      bubbleSentence.value
+    )
+    bubbleAddState.value = 'done'
+    bubbleIsAnnotated.value = true
+    const key = bubbleResult.value.word.toLowerCase()
+    manuallyAnnotated.value = new Map(manuallyAnnotated.value).set(key, bubbleResult.value.word_cn)
+  } catch {
+    bubbleAddState.value = 'error'
+  }
+}
+
+const bubbleMastering = ref(false)
+
+async function markMasteredFromBubble() {
+  bubbleMastering.value = true
+  try {
+    await setMasteredByWord(bubbleWord.value, true)
+    const set = new Set(masteredWords.value)
+    set.add(bubbleWord.value.toLowerCase())
+    masteredWords.value = set
+    bubbleVisible.value = false
+  } finally {
+    bubbleMastering.value = false
+  }
 }
 
 function handleEscKey(e) {
   if (e.key === 'Escape') bubbleVisible.value = false
 }
 
-onMounted(async () => {
-  masteredWords.value = await fetchMasteredWords()
+onMounted(() => {
   document.addEventListener('keydown', handleEscKey)
 })
 
@@ -190,7 +243,7 @@ onBeforeUnmount(() => {
         ></div>
 
         <!-- 单词气泡弹窗 -->
-        <div v-if="bubbleVisible" class="word-bubble" @click.stop>
+        <div v-if="bubbleVisible" class="word-bubble" :style="bubbleStyle" @click.stop>
           <div v-if="bubbleLoading" class="bubble-loading">查询中...</div>
           <template v-else-if="bubbleResult">
             <div class="bubble-word">{{ bubbleResult.word }}</div>
@@ -202,10 +255,26 @@ onBeforeUnmount(() => {
               <button
                 v-if="!bubbleIsAnnotated"
                 class="bubble-btn bubble-btn-add"
+                :disabled="bubbleAddState === 'loading'"
                 @click="addToVocabFromBubble"
               >
-                添加生词
+                <template v-if="bubbleAddState === 'loading'">添加中...</template>
+                <template v-else-if="bubbleAddState === 'error'">添加失败，重试</template>
+                <template v-else>添加生词</template>
               </button>
+              <span v-if="bubbleAddState === 'done' && !bubbleIsAnnotated" class="bubble-added-hint">已添加</span>
+              <button
+                v-if="bubbleIsAnnotated"
+                class="bubble-btn bubble-btn-master"
+                :disabled="bubbleMastering"
+                @click="markMasteredFromBubble"
+              >{{ bubbleMastering ? '标记中...' : '已掌握' }}</button>
+              <button
+                v-else
+                class="bubble-btn bubble-btn-disabled"
+                disabled
+              >已掌握</button>
+              <button class="bubble-btn bubble-btn-dismiss" @click="bubbleVisible = false">忽略</button>
             </div>
           </template>
           <div v-else class="bubble-loading">查询失败</div>
@@ -215,8 +284,8 @@ onBeforeUnmount(() => {
           v-else
           class="empty-state"
         >
-          <p>在下方输入一段英文文本。</p>
-          <p>系统会流式返回翻译标注后的阅读内容。</p>
+          <p>在下方输入一段英文文本，</p>
+          <p>等右上方进度条加载完毕返回翻译标注后的阅读内容。</p>
         </div>
       </div>
     </div>
@@ -246,22 +315,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-@font-face {
-  font-family: 'Bookerly';
-  src: url('/fonts/Bookerly.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Bookerly';
-  src: url('/fonts/Bookerly-Bold.ttf') format('truetype');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
 .page-shell {
   min-height: 100vh;
   display: flex;
@@ -383,13 +436,7 @@ onBeforeUnmount(() => {
 
 /* 单词气泡弹窗 */
 .word-bubble {
-  position: fixed;
-  bottom: 96px;
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 200;
-  width: 420px;
-  max-width: calc(100vw - 48px);
   padding: 20px 24px;
   border-radius: 16px;
   background:
@@ -452,9 +499,45 @@ onBeforeUnmount(() => {
   font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
-.bubble-btn-add:hover {
+.bubble-btn-add:hover:not(:disabled) {
   background: #5a3417;
   color: #fff2d5;
+}
+
+.bubble-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bubble-btn-master:hover:not(:disabled) {
+  background: #5a3417;
+  color: #fff2d5;
+}
+
+.bubble-btn-disabled {
+  border-color: rgba(98, 60, 24, 0.08);
+  background: rgba(91, 52, 23, 0.02);
+  color: rgba(140, 115, 89, 0.5);
+  cursor: not-allowed;
+}
+
+.bubble-btn-dismiss {
+  border-color: rgba(98, 60, 24, 0.12);
+  background: rgba(91, 52, 23, 0.04);
+  color: #8c7359;
+}
+
+.bubble-btn-dismiss:hover {
+  background: rgba(180, 42, 42, 0.08);
+  color: #8f1f1f;
+  border-color: rgba(180, 42, 42, 0.2);
+}
+
+.bubble-added-hint {
+  font-size: 13px;
+  color: #6c4b24;
+  align-self: center;
+  font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
 /* 空状态 */
@@ -583,6 +666,10 @@ onBeforeUnmount(() => {
 
   .send-button {
     min-width: 70px;
+  }
+
+  .word-bubble {
+    width: calc(100vw - 48px) !important;
   }
 }
 </style>

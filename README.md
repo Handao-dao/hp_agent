@@ -10,6 +10,7 @@
 - 三级阅读水平（初级/中级/高级），控制标注密度
 - 生词本：跨会话累积，搜索/标记已掌握/忽略，已掌握词按时间排序
 - 翻译历史记录：自动保存，可回看可删除
+- 点击单词弹出气泡查词：LLM 词翻译 + 整句翻译，支持添加生词和标记已掌握
 - Bookerly 衬线字体，阅读体验贴近纸质书
 
 ## 技术栈
@@ -32,8 +33,10 @@ hp_agent/
 │   └── src/hp_agent/
 │       ├── main.py             # FastAPI 入口 + SSE 接口 + REST API
 │       ├── agent1.py           # AnnotatorService + 系统提示词 + 分级规则
+│       ├── agent2.py           # WordLookupService：单词查询 + 句子翻译
 │       ├── sse_service.py      # DocumentProcessor：分块 + 并行 + 流式
 │       ├── vocab_db.py         # SQLite 持久化：生词 + 历史记录
+│       ├── utils.py             # 公共工具（extract_json + sse_event）
 │       └── tobecontinued/      # 待开发模块
 ├── frontend/
 │   ├── index.html
@@ -49,13 +52,15 @@ hp_agent/
 │       │   ├── VocabularyPage.vue  # 生词本（生词/已掌握子 Tab）
 │       │   └── HistoryPage.vue     # 历史记录（展开/删除）
 │       ├── composables/
-│       │   └── useReadingStream.js  # SSE 连接 + 状态管理
+│       │   ├── useReadingStream.js  # SSE 连接 + 状态管理
+│       │   └── useMasteredWords.js  # 已掌握词汇共享状态
 │       ├── utils/
 │       │   └── formatText.js   # 标记解析 + 已掌握词过滤
 │       └── api/
 │           ├── reading.js      # POST 创建任务
 │           ├── vocabulary.js   # 生词 CRUD
-│           └── history.js      # 历史 CRUD
+│           ├── history.js      # 历史 CRUD
+│           └── lookup.js       # 单词查询 + 添加生词
 ```
 
 ## 快速开始
@@ -81,6 +86,16 @@ npm run dev
 
 访问 `http://localhost:5173`，输入英文文本，按 Enter 开始处理。
 
+## 配置
+
+项目需要 DeepSeek API Key 才能调用 LLM。配置步骤：
+
+1. 访问 [DeepSeek 开放平台](https://platform.deepseek.com)，注册并获取 API Key
+2. 复制模板文件：`cp backend/.env.example backend/.env`
+3. 将 `backend/.env` 中的 `LLM_API_KEY=sk-your-api-key-here` 替换为你的真实 Key
+
+其他可调参数见 [配置参考](#配置参考-env)。
+
 ## 数据流
 
 ```
@@ -96,6 +111,12 @@ npm run dev
   → _maybe_save_completed() 自动写入 SQLite（生词 upsert + 历史保存）
   → 前端 formatText.js 解析 [[...|...]] + masteredWords 过滤
   → ReadingPage.vue 渲染 (Bookerly 字体 + 暗金色高亮)
+
+# 点击查词流程（独立于批注流程）
+点击单词 → 事件委托捕获 → extractSentence() 提取句子
+  → POST /api/word-lookup { word, sentence }
+  → WordLookupService → DeepSeek API
+  → 气泡弹窗显示词翻译 + 句翻译 + [添加生词]/[已掌握]/[忽略]
 ```
 
 ## 关键设计决策
@@ -110,6 +131,7 @@ npm run dev
 | **三级标注密度** | `beginner`/`intermediate`/`advanced` 三套英文规则，控制标注阈值，不影响翻译字数 |
 | **已掌握渲染过滤** | `annotated_text` 原样存储，渲染时根据 `masteredWords` 集合决定是否显示标注，可逆 |
 | **生词本 + 历史子页面** | vue-router 三路由，Tab 导航切换，生词本内分子 Tab（生词/已掌握） |
+| **点击查词 + 气泡弹窗** | Agent2 独立 LLM 智能体，前端 DOM 级句子提取，气泡跟随单词位置，添加生词/标记已掌握即时渲染 |
 
 ## 配置参考 (.env)
 
@@ -140,9 +162,15 @@ MAX_MASTERED_WORDS_IN_PROMPT=300
 - 2026-05-11: 已掌握词汇渲染过滤（存储不变，渲染时按集合过滤，可逆）
 - 2026-05-14: 翻译历史记录自动保存 + 列表/详情/删除
 - 2026-05-14: 三级阅读水平（初级/中级/高级）控制标注密度
+- 2026-05-15: 点击查词气泡弹窗（agent2 + `POST /api/word-lookup` + DOM 句子提取 + 气泡定位）
+- 2026-05-15: 生词本批量操作（全选/标记已掌握/忽略）
+- 2026-05-16: 气泡添加生词即时 DOM 渲染、标记已掌握即时移除翻译
+- 2026-05-18: 三轮代码审查修复（23 项）——去重/超时保护/错误处理/并发安全/响应式重构
+- 2026-05-18: 新增 `useMasteredWords` 共享 composable、`utils.py` 公共模块、WAL shutdown 钩子
 
 ## 待开发
 
-- 生词本侧边栏（vocabulary 已通过 SSE `completed` 事件下发，前端暂未展示）
-- 已掌握词汇记忆与过滤（`mastered_words` 接口已就绪）
-- `tobecontinued/` 目录下的 agent2、dictionary_service、config、utils 模块
+- 生词导出（CSV/Anki 格式）
+- 发音（TTS 或音标）
+- 生产环境任务队列（Redis 替代内存字典）
+- `tobecontinued/` 目录下的 dictionary_service、config、utils 模块

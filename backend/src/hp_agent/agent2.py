@@ -1,6 +1,6 @@
 import json
-import re
 from hello_agents import HelloAgentsLLM, SimpleAgent
+from hp_agent.utils import extract_json
 
 LOOKUP_SYSTEM_PROMPT = """
 # Role
@@ -69,20 +69,4 @@ class WordLookupService:
             user_prompt,
             extra_body={"thinking": {"type": "disabled"}}
         )
-        return self._extract_json(response)
-
-    def _extract_json(self, response: str) -> dict:
-        response = response.strip()
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            pass
-
-        json_match = re.search(r"\{.*\}", response, re.DOTALL)
-        if not json_match:
-            raise ValueError(f"无法从响应中提取 JSON。\n完整响应: {response}")
-
-        try:
-            return json.loads(json_match.group(0))
-        except json.JSONDecodeError as e:
-            raise ValueError(f"JSON 解析失败: {e}\nAgent 返回内容: {json_match.group(0)}")
+        return extract_json(response)

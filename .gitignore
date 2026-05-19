@@ -5,3 +5,7 @@ node_modules/
 dist/
 .env
 *.db
+.venv/
+data/
+.DS_Store
+*.log

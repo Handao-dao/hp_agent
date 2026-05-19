@@ -14,7 +14,11 @@ export function useReadingStream() {
 
   let eventSource = null
 
+  let idleTimer = null
+
   const closeEventSource = () => {
+    clearTimeout(idleTimer)
+    idleTimer = null
     if (eventSource) {
       eventSource.close()
       eventSource = null
@@ -91,7 +95,19 @@ export function useReadingStream() {
         `/api/process-stream?task_id=${encodeURIComponent(taskId)}`
       )
 
+      idleTimer = setTimeout(() => {
+        errorMessage.value = '处理超时，请重试'
+        isProcessing.value = false
+        closeEventSource()
+      }, 60000)
+
       eventSource.onmessage = (event) => {
+        clearTimeout(idleTimer)
+        idleTimer = setTimeout(() => {
+          errorMessage.value = '处理超时，请重试'
+          isProcessing.value = false
+          closeEventSource()
+        }, 60000)
         try {
           const data = JSON.parse(event.data)
           handleSseData(data)
@@ -101,8 +117,8 @@ export function useReadingStream() {
         }
       }
 
-      eventSource.onerror = (error) => {
-        console.error('SSE 连接错误:', error)
+      eventSource.onerror = () => {
+        if (!eventSource || eventSource.readyState === EventSource.CLOSED) return
         errorMessage.value = 'SSE 连接异常，请检查后端服务'
         isProcessing.value = false
         closeEventSource()

@@ -1,8 +1,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { fetchHistoryList, fetchHistoryDetail, deleteHistory } from '../api/history'
-import { fetchMasteredWords } from '../api/vocabulary'
 import { formatAnnotatedText } from '../utils/formatText'
+import { useMasteredWords } from '../composables/useMasteredWords'
 
 const items = ref([])
 const total = ref(0)
@@ -10,18 +10,24 @@ const loading = ref(false)
 const expandedId = ref(null)
 const expandedRecord = ref(null)
 const expandedLoading = ref(false)
-const masteredWords = ref(new Set())
+const errorMsg = ref('')
+const masteredWords = useMasteredWords()
 
 async function load() {
   loading.value = true
+  errorMsg.value = ''
   try {
     const res = await fetchHistoryList({ limit: 50 })
     items.value = res.items
     total.value = res.total
+  } catch {
+    errorMsg.value = '加载历史记录失败，请检查后端服务'
   } finally {
     loading.value = false
   }
 }
+
+let requestSeq = 0
 
 async function toggleExpand(taskId) {
   if (expandedId.value === taskId) {
@@ -31,10 +37,12 @@ async function toggleExpand(taskId) {
   }
   expandedId.value = taskId
   expandedLoading.value = true
+  const thisReq = ++requestSeq
   try {
-    expandedRecord.value = await fetchHistoryDetail(taskId)
+    const record = await fetchHistoryDetail(taskId)
+    if (thisReq === requestSeq) expandedRecord.value = record
   } finally {
-    expandedLoading.value = false
+    if (thisReq === requestSeq) expandedLoading.value = false
   }
 }
 
@@ -54,7 +62,6 @@ const expandedHtml = computed(() => {
 })
 
 onMounted(async () => {
-  masteredWords.value = await fetchMasteredWords()
   await load()
 })
 </script>
@@ -66,6 +73,8 @@ onMounted(async () => {
         <h2>历史记录</h2>
         <span class="count-badge" v-if="total">{{ total }} 篇</span>
       </div>
+
+      <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
 
       <div class="history-list" v-if="items.length">
         <div
@@ -81,12 +90,13 @@ onMounted(async () => {
 
           <div class="item-expand" v-if="expandedId === item.id">
             <div class="expand-loading" v-if="expandedLoading">加载中...</div>
-            <div
-              v-else
-              class="reading-content"
-              v-html="expandedHtml"
-            ></div>
-            <button class="delete-btn" @click="handleDelete(item.id)">删除此记录</button>
+            <template v-else>
+              <button class="delete-btn" @click="handleDelete(item.id)">删除此记录</button>
+              <div
+                class="reading-content"
+                v-html="expandedHtml"
+              ></div>
+            </template>
           </div>
         </div>
       </div>
@@ -101,22 +111,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-@font-face {
-  font-family: 'Bookerly';
-  src: url('/fonts/Bookerly.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Bookerly';
-  src: url('/fonts/Bookerly-Bold.ttf') format('truetype');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
 .page-shell {
   flex: 1;
   padding: 32px 20px 60px;
@@ -159,6 +153,16 @@ onMounted(async () => {
   background: rgba(111, 72, 28, 0.1);
   padding: 2px 10px;
   border-radius: 10px;
+}
+
+.error-msg {
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background: rgba(180, 42, 42, 0.08);
+  color: #8f1f1f;
+  font-size: 13px;
+  font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
 .history-list {
@@ -233,6 +237,7 @@ onMounted(async () => {
 
 .delete-btn {
   padding: 8px 18px;
+  margin-bottom: 12px;
   border: 1px solid rgba(180, 42, 42, 0.3);
   border-radius: 8px;
   background: rgba(180, 42, 42, 0.06);

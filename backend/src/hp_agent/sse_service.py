@@ -1,8 +1,8 @@
-import json
 import re
 import asyncio
 from typing import List, Dict, AsyncGenerator, Optional
 from hp_agent.agent1 import AnnotatorService
+from hp_agent.utils import sse_event
 
 
 class DocumentProcessor:
@@ -60,13 +60,13 @@ class DocumentProcessor:
 
         total_chunks = len(chunks)
 
-        yield self._sse({
+        yield sse_event({
             "type": "start",
             "total": total_chunks
         })
 
         if total_chunks == 0:
-            yield self._sse({
+            yield sse_event({
                 "type": "completed",
                 "annotated_text": "",
                 "total_vocab": []
@@ -79,16 +79,23 @@ class DocumentProcessor:
         async def process_one(idx: int, chunk_text: str):
             async with sem:
                 try:
-                    result = await asyncio.to_thread(
-                        self.annotator.annotate_text,
-                        chunk_text,
-                        mastered_words,
-                        level
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self.annotator.annotate_text,
+                            chunk_text,
+                            mastered_words,
+                            level
+                        ),
+                        timeout=120.0
                     )
                     annotated = self._normalize_quotes(result.annotated_text or chunk_text)
                     return (idx, annotated, result.vocabulary, None)
                 except asyncio.CancelledError:
                     raise
+                except asyncio.TimeoutError:
+                    print(f"第 {idx} 个文本块处理超时，降级返回原文本")
+                    fallback = self._normalize_quotes(chunk_text)
+                    return (idx, fallback, [], "timeout")
                 except Exception as e:
                     print(f"第 {idx} 个文本块处理失败，降级返回原文本: {e}")
                     fallback = self._normalize_quotes(chunk_text)
@@ -108,7 +115,7 @@ class DocumentProcessor:
             completed_count += 1
             results[idx] = (annotated, vocab, error)
 
-            yield self._sse({
+            yield sse_event({
                 "type": "progress",
                 "current": completed_count,
                 "total": total_chunks
@@ -137,7 +144,7 @@ class DocumentProcessor:
 
         full_annotated_text = "\n\n".join(annotated_parts)
 
-        yield self._sse({
+        yield sse_event({
             "type": "completed",
             "annotated_text": full_annotated_text,
             "total_vocab": list(unique_vocabulary.values())
@@ -192,8 +199,3 @@ class DocumentProcessor:
             chunks.append("\n\n".join(current_parts))
 
         return chunks
-
-    def _sse(self, payload: dict) -> str:
-        """统一封装 SSE 数据格式"""
-
-        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
