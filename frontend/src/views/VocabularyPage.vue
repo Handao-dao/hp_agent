@@ -10,6 +10,7 @@
  */
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { fetchVocabulary, setMastered, deleteVocabulary as deleteVocab } from '../api/vocabulary'
+import { addMasteredWord, removeMasteredWord } from '../composables/useMasteredWords'
 
 const activeTab = ref('unmastered') // 'unmastered' | 'mastered'
 const search = ref('')
@@ -57,18 +58,20 @@ async function loadMastered() {
 async function markMastered(item) {
   await setMastered(item.id, true)
   unmasteredItems.value = unmasteredItems.value.filter(i => i.id !== item.id)
-  unmasteredTotal.value--
+  unmasteredTotal.value = Math.max(0, unmasteredTotal.value - 1)
   // 插入已掌握列表头部（最新掌握的排最前）
   item.mastered = 1
   item.mastered_at = new Date().toISOString().replace('T', ' ').slice(0, 19)
-  masteredItems.value.unshift(item)
+  masteredItems.value = [item, ...masteredItems.value.filter(i => i.id !== item.id)]
   masteredTotal.value++
+  addMasteredWord(item.word)
 }
 
 async function unmarkMastered(item) {
   await setMastered(item.id, false)
   masteredItems.value = masteredItems.value.filter(i => i.id !== item.id)
-  masteredTotal.value--
+  masteredTotal.value = Math.max(0, masteredTotal.value - 1)
+  removeMasteredWord(item.word)
 }
 
 function toggleExpand(id) {
@@ -77,11 +80,18 @@ function toggleExpand(id) {
 
 async function handleDelete(item) {
   if (!confirm(`确定要删除"${item.word}"吗？`)) return
+  const wasUnmastered = unmasteredItems.value.some(i => i.id === item.id)
+  const wasMastered = masteredItems.value.some(i => i.id === item.id)
   await deleteVocab(item.id)
   unmasteredItems.value = unmasteredItems.value.filter(i => i.id !== item.id)
-  unmasteredTotal.value--
+  if (wasUnmastered) {
+    unmasteredTotal.value = Math.max(0, unmasteredTotal.value - 1)
+  }
   masteredItems.value = masteredItems.value.filter(i => i.id !== item.id)
-  masteredTotal.value--
+  if (wasMastered) {
+    masteredTotal.value = Math.max(0, masteredTotal.value - 1)
+    removeMasteredWord(item.word)
+  }
   if (expandedId.value === item.id) expandedId.value = null
 }
 
@@ -123,9 +133,21 @@ async function batchMarkMastered(items) {
   const ids = [...selectedIds.value]
   try {
     const results = await Promise.allSettled(ids.map(id => setMastered(id, true)))
-    const failed = results.filter(r => r.status === 'rejected').length
-    unmasteredItems.value = unmasteredItems.value.filter(i => !selectedIds.value.has(i.id))
-    unmasteredTotal.value = unmasteredItems.value.length
+    const successfulIds = ids.filter((_, idx) => results[idx].status === 'fulfilled')
+    const successSet = new Set(successfulIds)
+    const failed = ids.length - successfulIds.length
+    const movedItems = unmasteredItems.value.filter(i => successSet.has(i.id))
+    unmasteredItems.value = unmasteredItems.value.filter(i => !successSet.has(i.id))
+    unmasteredTotal.value = Math.max(0, unmasteredTotal.value - movedItems.length)
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19)
+    const existingMasteredIds = new Set(masteredItems.value.map(i => i.id))
+    const newlyMastered = movedItems
+      .filter(i => !existingMasteredIds.has(i.id))
+      .map(i => ({ ...i, mastered: 1, mastered_at: now }))
+    masteredItems.value = [...newlyMastered, ...masteredItems.value]
+    masteredTotal.value += newlyMastered.length
+    movedItems.forEach(item => addMasteredWord(item.word))
     clearSelection()
     if (failed > 0) alert(`${failed} 个标记失败，其余已处理`)
   } finally {
@@ -140,11 +162,16 @@ async function batchDelete(items) {
   const ids = [...selectedIds.value]
   try {
     const results = await Promise.allSettled(ids.map(id => deleteVocab(id)))
-    const failed = results.filter(r => r.status === 'rejected').length
-    unmasteredItems.value = unmasteredItems.value.filter(i => !selectedIds.value.has(i.id))
-    unmasteredTotal.value = unmasteredItems.value.length
-    masteredItems.value = masteredItems.value.filter(i => !selectedIds.value.has(i.id))
-    masteredTotal.value = masteredItems.value.length
+    const successfulIds = ids.filter((_, idx) => results[idx].status === 'fulfilled')
+    const successSet = new Set(successfulIds)
+    const failed = ids.length - successfulIds.length
+    const deletedUnmastered = unmasteredItems.value.filter(i => successSet.has(i.id))
+    const deletedMastered = masteredItems.value.filter(i => successSet.has(i.id))
+    unmasteredItems.value = unmasteredItems.value.filter(i => !successSet.has(i.id))
+    unmasteredTotal.value = Math.max(0, unmasteredTotal.value - deletedUnmastered.length)
+    masteredItems.value = masteredItems.value.filter(i => !successSet.has(i.id))
+    masteredTotal.value = Math.max(0, masteredTotal.value - deletedMastered.length)
+    deletedMastered.forEach(item => removeMasteredWord(item.word))
     clearSelection()
     if (failed > 0) alert(`${failed} 个删除失败，其余已处理`)
   } finally {

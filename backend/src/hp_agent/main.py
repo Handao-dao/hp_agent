@@ -15,26 +15,25 @@ HP-Agent FastAPI 后端入口。
 - DELETE /api/history/{task_id}        删除历史记录
 """
 
+import asyncio
+import json
+import logging
 import os
 import uuid
-import json
-import asyncio
-import logging
-from typing import Dict, Optional
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from hello_agents import HelloAgentsLLM
 from pydantic import BaseModel, Field
 
-from hello_agents import HelloAgentsLLM
 from hp_agent.agent1 import AnnotatorService
 from hp_agent.agent2 import WordLookupService
 from hp_agent.sse_service import DocumentProcessor
-from hp_agent.vocab_db import VocabDB
 from hp_agent.utils import sse_event
+from hp_agent.vocab_db import VocabDB
 
 # ==============================
 # 基础配置
@@ -117,7 +116,7 @@ class AddVocabRequest(BaseModel):
 # 开发阶段可以先用内存字典
 # 生产环境建议换成 Redis / 数据库
 # ==============================
-process_tasks: Dict[str, dict] = {}
+process_tasks: dict[str, dict] = {}
 TASK_EXPIRE_MINUTES = 30
 
 def _maybe_save_completed(event: str, task_id: str, original_text: str):
@@ -228,7 +227,7 @@ async def create_process_task(request: CreateProcessTaskRequest):
 @app.get("/api/vocabulary")
 async def list_vocabulary(
     search: str = Query(default="", description="搜索关键词"),
-    mastered: Optional[int] = Query(default=None, description="已掌握筛选: 0/1"),
+    mastered: int | None = Query(default=None, description="已掌握筛选: 0/1"),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0)
 ):
@@ -258,7 +257,11 @@ async def delete_vocabulary(vocab_id: int):
 
 @app.post("/api/word-lookup")
 async def word_lookup(request: WordLookupRequest):
-    result = lookup_svc.lookup(request.word, request.sentence)
+    result = await asyncio.to_thread(
+        lookup_svc.lookup,
+        request.word,
+        request.sentence,
+    )
     return result
 
 

@@ -5,8 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hp-agent-backend"
 version = "0.1.0"
-description = "FastAPI backend for a Harry Potter reading translation agent."
-readme = "README.md"
+description = "FastAPI backend for HP-Agent."
+readme = { text = "FastAPI backend for HP-Agent.", content-type = "text/markdown" }
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
@@ -31,7 +31,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 88
@@ -39,3 +38,4 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

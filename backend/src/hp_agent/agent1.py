@@ -8,12 +8,13 @@
 """
 
 import json
-from typing import List, Dict
+import os
 from dataclasses import dataclass
 
 from hello_agents import SimpleAgent
-from hello_agents.tools import ToolRegistry
+
 from hp_agent.utils import extract_json
+
 
 # 1. 定义数据结构
 @dataclass
@@ -27,7 +28,7 @@ class VocabItem:
 class AnnotationResult:
     """标注结果：标注后文本 + 提取的生词列表。"""
     annotated_text: str
-    vocabulary: List[VocabItem]
+    vocabulary: list[VocabItem]
 
 # 2. 系统提示词预设
 ANNOTATOR_SYSTEM_PROMPT = """
@@ -181,7 +182,13 @@ class AnnotatorService:
             llm=llm
         )
 
-    def annotate_text(self, text: str, mastered_words: List[str] = None, level: str = "intermediate") -> AnnotationResult:
+    def _json_retry_count(self) -> int:
+        try:
+            return max(0, int(os.getenv("ANNOTATOR_JSON_RETRY", "1")))
+        except ValueError:
+            return 1
+
+    def annotate_text(self, text: str, mastered_words: list[str] = None, level: str = "intermediate") -> AnnotationResult:
         """
         标注文本并返回 AnnotationResult。
         - level: beginner / intermediate / advanced，控制标注密度
@@ -198,14 +205,30 @@ class AnnotatorService:
             text=text
         )
         
-        # 调用 Agent（关闭 v4-pro 思考模式以提速）
-        response = self._agent.run(
-            user_prompt,
-            extra_body={"thinking": {"type": "disabled"}}
-        )
-        
-        # 解析 JSON
-        parsed_payload = extract_json(response)
+        parsed_payload = None
+        last_error = None
+
+        for attempt in range(self._json_retry_count() + 1):
+            prompt = user_prompt
+            if attempt > 0:
+                prompt += (
+                    "\n\nYour previous response was not valid JSON. "
+                    "Return the same task result again as valid JSON only."
+                )
+
+            response = self._agent.run(
+                prompt,
+                extra_body={"thinking": {"type": "disabled"}}
+            )
+
+            try:
+                parsed_payload = extract_json(response)
+                break
+            except ValueError as exc:
+                last_error = exc
+
+        if parsed_payload is None:
+            raise last_error or ValueError("LLM did not return valid JSON")
         
         # 验证并创建返回对象
         vocab_items = []

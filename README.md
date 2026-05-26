@@ -123,7 +123,7 @@ hp_agent/
 
 ### 1. 环境要求
 
-- Python 3.10+
+- Python 3.11+
 - Node.js 18+
 - DeepSeek API Key
 - 推荐使用 `uv` 管理 Python 依赖

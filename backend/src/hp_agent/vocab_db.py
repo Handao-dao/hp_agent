@@ -8,10 +8,9 @@ SQLite 持久化层：生词本 (vocabulary) + 翻译历史 (history)。
 - 生词 upsert 去重累加 encounter_count，历史记录 INSERT OR REPLACE
 """
 
-import sqlite3
 import os
+import sqlite3
 import threading
-from typing import List, Optional, Tuple
 
 
 class VocabDB:
@@ -96,7 +95,7 @@ class VocabDB:
             self._conn.commit()
             return row[0]
 
-    def get_mastered_words(self) -> List[str]:
+    def get_mastered_words(self) -> list[str]:
         rows = self._conn.execute(
             "SELECT word FROM vocabulary WHERE mastered = 1 ORDER BY word"
         ).fetchall()
@@ -105,10 +104,10 @@ class VocabDB:
     def list_vocabulary(
         self,
         search: str = "",
-        mastered: Optional[int] = None,
+        mastered: int | None = None,
         limit: int = 50,
         offset: int = 0
-    ) -> Tuple[List[dict], int]:
+    ) -> tuple[list[dict], int]:
         """
         查询生词列表。
         - mastered=0: 未掌握，按 encounter_count 降序
@@ -160,7 +159,7 @@ class VocabDB:
                 )
             self._conn.commit()
 
-    def get_vocab_by_id(self, vocab_id: int) -> Optional[dict]:
+    def get_vocab_by_id(self, vocab_id: int) -> dict | None:
         row = self._conn.execute(
             "SELECT * FROM vocabulary WHERE id = ?", (vocab_id,)
         ).fetchone()
@@ -208,7 +207,7 @@ class VocabDB:
             """, (task_id, original_text, annotated_text, title))
             self._conn.commit()
 
-    def list_history(self, limit: int = 20, offset: int = 0) -> Tuple[List[dict], int]:
+    def list_history(self, limit: int = 20, offset: int = 0) -> tuple[list[dict], int]:
         total = self._conn.execute("SELECT COUNT(*) as cnt FROM history").fetchone()["cnt"]
         rows = self._conn.execute(
             "SELECT id, title, created_at FROM history ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -216,7 +215,7 @@ class VocabDB:
         ).fetchall()
         return [dict(row) for row in rows], total
 
-    def get_history(self, task_id: str) -> Optional[dict]:
+    def get_history(self, task_id: str) -> dict | None:
         row = self._conn.execute(
             "SELECT * FROM history WHERE id = ?", (task_id,)
         ).fetchone()

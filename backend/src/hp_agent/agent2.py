@@ -8,8 +8,10 @@
 与 AnnotatorService 完全解耦：独立系统提示词、独立 temperature、独立调用时机。
 """
 
-import json
+import os
+
 from hello_agents import HelloAgentsLLM, SimpleAgent
+
 from hp_agent.utils import extract_json
 
 # WordLookupService 系统提示词：英汉词典角色，输出严格 JSON
@@ -74,6 +76,12 @@ class WordLookupService:
             llm=llm
         )
 
+    def _json_retry_count(self) -> int:
+        try:
+            return max(0, int(os.getenv("LOOKUP_JSON_RETRY", "1")))
+        except ValueError:
+            return 1
+
     def lookup(self, word: str, sentence: str) -> dict:
         """
         执行查词。关闭 thinking mode 以加速响应。
@@ -83,8 +91,24 @@ class WordLookupService:
             word=word,
             sentence=sentence
         )
-        response = self._agent.run(
-            user_prompt,
-            extra_body={"thinking": {"type": "disabled"}}
-        )
-        return extract_json(response)
+        last_error = None
+
+        for attempt in range(self._json_retry_count() + 1):
+            prompt = user_prompt
+            if attempt > 0:
+                prompt += (
+                    "\n\nYour previous response was not valid JSON. "
+                    "Return the lookup result again as valid JSON only."
+                )
+
+            response = self._agent.run(
+                prompt,
+                extra_body={"thinking": {"type": "disabled"}}
+            )
+
+            try:
+                return extract_json(response)
+            except ValueError as exc:
+                last_error = exc
+
+        raise last_error or ValueError("LLM did not return valid JSON")

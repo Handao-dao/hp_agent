@@ -17,7 +17,7 @@ import { useReadingStream } from '../composables/useReadingStream'
 import { formatAnnotatedText } from '../utils/formatText'
 import { setMasteredByWord } from '../api/vocabulary'
 import { lookupWord, addVocabToDB } from '../api/lookup'
-import { useMasteredWords } from '../composables/useMasteredWords'
+import { addMasteredWord, useMasteredWords } from '../composables/useMasteredWords'
 
 const LEVEL_LABELS = { beginner: '初级', intermediate: '中级', advanced: '高级' }
 
@@ -170,10 +170,12 @@ const bubbleMastering = ref(false)
 async function markMasteredFromBubble() {
   bubbleMastering.value = true
   try {
-    await setMasteredByWord(bubbleWord.value, true)
-    const set = new Set(masteredWords.value)
-    set.add(bubbleWord.value.toLowerCase())
-    masteredWords.value = set
+    const result = await setMasteredByWord(bubbleWord.value, true)
+    if (!result.found) {
+      bubbleAddState.value = 'error'
+      return
+    }
+    addMasteredWord(bubbleWord.value)
     bubbleVisible.value = false
   } finally {
     bubbleMastering.value = false

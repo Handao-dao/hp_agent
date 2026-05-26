@@ -1,10 +1,9 @@
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-
 
 load_dotenv()
 
@@ -29,7 +28,7 @@ class Configuration(BaseModel):
     )
 
     llm_model_id: str = Field(default="deepseek-chat")
-    llm_api_key: Optional[str] = Field(default=None)
+    llm_api_key: str | None = Field(default=None)
     llm_base_url: str = Field(default="https://api.deepseek.com")
     llm_timeout: int = Field(default=60)
     llm_temperature: float = Field(default=0.2)
@@ -44,7 +43,7 @@ class Configuration(BaseModel):
     max_mastered_words_in_prompt: int = Field(default=300)
 
     @classmethod
-    def from_env(cls, overrides: Optional[dict[str, Any]] = None) -> "Configuration":
+    def from_env(cls, overrides: dict[str, Any] | None = None) -> "Configuration":
         raw_values: dict[str, Any] = {}
 
         env_aliases = {

@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
+from hello_agents import HelloAgentsLLM
 
 from hp_agent.agent1 import AnnotatorService
-from hello_agents import HelloAgentsLLM
 
 
 def main():
@@ -11,7 +11,7 @@ def main():
     annotator_svc = AnnotatorService(llm)
 
     text = """
-‘How’s yer brother Charlie?’ Hagrid asked Ron. ‘I liked him a lot – great with animals.’
+'How's yer brother Charlie?' Hagrid asked Ron. 'I liked him a lot - great with animals.'
 """
 
     mastered_words = ["hello", "apple"]

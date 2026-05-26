@@ -10,10 +10,10 @@
 去重策略：同一单词的不同大小写形式归一化（lower），首次出现保留原文形式。
 """
 
-import re
 import asyncio
-from typing import List, Dict, AsyncGenerator, Optional
-from hp_agent.agent1 import AnnotatorService
+import re
+from collections.abc import AsyncGenerator
+
 from hp_agent.utils import sse_event
 
 
@@ -54,7 +54,7 @@ class DocumentProcessor:
     async def process_chapter_stream(
     self,
     long_text: str,
-    mastered_words: Optional[List[str]] = None,
+    mastered_words: list[str] | None = None,
     level: str = "intermediate"
 ) -> AsyncGenerator[str, None]:
         """
@@ -105,7 +105,7 @@ class DocumentProcessor:
                     return (idx, annotated, result.vocabulary, None)
                 except asyncio.CancelledError:
                     raise
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     print(f"第 {idx} 个文本块处理超时，降级返回原文本")
                     fallback = self._normalize_quotes(chunk_text)
                     return (idx, fallback, [], "timeout")
@@ -120,7 +120,7 @@ class DocumentProcessor:
         ]
 
         # 按完成顺序接收结果，仅发送进度事件
-        results: Dict[int, tuple] = {}
+        results: dict[int, tuple] = {}
         completed_count = 0
 
         for coro in asyncio.as_completed(tasks):
@@ -135,8 +135,8 @@ class DocumentProcessor:
             })
 
         # 按 chunk 原始顺序组装最终结果
-        unique_vocabulary: Dict[str, dict] = {}
-        annotated_parts: List[str] = []
+        unique_vocabulary: dict[str, dict] = {}
+        annotated_parts: list[str] = []
 
         for idx in sorted(results.keys()):
             annotated, vocab, error = results[idx]
@@ -163,7 +163,7 @@ class DocumentProcessor:
             "total_vocab": list(unique_vocabulary.values())
         })
 
-    def _split_paragraphs(self, text: str) -> List[str]:
+    def _split_paragraphs(self, text: str) -> list[str]:
         """按自然段切分文本"""
 
         text = text.strip()
@@ -182,7 +182,7 @@ class DocumentProcessor:
 
         return [p.strip() for p in paragraphs if p.strip()]
 
-    def _pack_paragraphs(self, paragraphs: List[str]) -> List[str]:
+    def _pack_paragraphs(self, paragraphs: list[str]) -> list[str]:
         """
         将短段落合并成适合 LLM 处理的 chunk。
 
