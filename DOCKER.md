@@ -1,6 +1,6 @@
 # Docker Compose 使用说明
 
-这份配置适合把 ReadingHelper Agent 作为本地 Web 应用交给别人测试。测试者只需要安装 Docker Desktop，配置自己的 LLM API Key，然后用一条命令启动前后端。
+这份配置适合把 ReadingHelper Agent 作为本地 Web 应用交给别人测试。测试者只需要安装 Docker Desktop，用一条命令启动前后端，然后在页面里的“设置”中填写自己的 DeepSeek API Key。
 
 ## 需要提前安装
 
@@ -26,37 +26,19 @@ git clone https://github.com/Handao-dao/ReadingHelper_Agent.git
 cd ReadingHelper_Agent
 ```
 
-2. 创建后端环境变量文件：
-
-Windows PowerShell:
-
-```powershell
-Copy-Item backend/.env.example backend/.env
-```
-
-macOS / Linux:
-
-```bash
-cp backend/.env.example backend/.env
-```
-
-3. 编辑 `backend/.env`，至少填写：
-
-```env
-LLM_API_KEY=sk-your-api-key-here
-```
-
-4. 启动应用：
+2. 启动应用：
 
 ```bash
 docker compose up --build
 ```
 
-5. 打开浏览器：
+3. 打开浏览器：
 
 ```text
 http://localhost:8080
 ```
+
+4. 进入顶部导航的“设置”页面，填写 DeepSeek API Key 并保存。
 
 后端健康检查地址：
 
@@ -66,13 +48,13 @@ http://localhost:8000/api/health
 
 ## 数据保存位置
 
-SQLite 数据会保存到本机目录：
+API Key 设置、SQLite 生词本和阅读历史会保存到本机目录：
 
 ```text
 backend/data
 ```
 
-停止或删除容器不会删除这个目录，所以生词本和历史记录可以保留。
+停止或删除容器不会删除这个目录，所以设置、生词本和历史记录可以保留。
 
 ## 常用命令
 
@@ -120,7 +102,7 @@ http://localhost:8081
 
 ## 注意事项
 
-- 不要提交 `backend/.env`，里面包含 API Key。
+- 如果仍然使用 `backend/.env` 作为本地后备配置，不要提交这个文件，里面可能包含 API Key。
 - 首次构建需要网络访问 Docker Hub、PyPI 和 npm registry。
 - 如果在中国大陆网络环境下构建较慢，建议配置 Docker Desktop 镜像加速，或换用更稳定的网络。
 - Docker Compose 版本适合测试和部署，不等同于普通用户双击安装的桌面应用。

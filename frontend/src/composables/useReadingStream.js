@@ -11,8 +11,12 @@
  */
 import { ref, onBeforeUnmount } from 'vue'
 import { createProcessTask } from '../api/reading'
+import { useAppBusy } from './useAppBusy'
+
+const READING_BUSY_SOURCE = 'reading-stream'
 
 export function useReadingStream() {
+  const { setBusy } = useAppBusy()
   const annotatedText = ref('')
   const vocabulary = ref([])
   const isProcessing = ref(false)
@@ -34,6 +38,7 @@ export function useReadingStream() {
       eventSource.close()
       eventSource = null
     }
+    setBusy(READING_BUSY_SOURCE, false)
   }
 
   const handleSseData = (data) => {
@@ -93,6 +98,7 @@ export function useReadingStream() {
     progress.value.current = 0
     progress.value.total = 0
     isProcessing.value = true
+    setBusy(READING_BUSY_SOURCE, true)
 
     try {
       const result = await createProcessTask(text, level, profile)

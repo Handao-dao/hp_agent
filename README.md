@@ -134,15 +134,17 @@ hp_agent/
 - DeepSeek API Key
 - 推荐使用 `uv` 管理 Python 依赖
 
-### 2. 配置环境变量
+### 2. 配置模型密钥
 
-复制后端环境变量模板：
+推荐方式：启动应用后进入顶部导航的“设置”页面，填写 DeepSeek API Key 并保存。应用会把 API Key、词表和阅读历史都保存到后端本地数据目录 `backend/data`。
+
+如果你更希望用环境变量，也可以复制后端环境变量模板：
 
 ```bash
 cp backend/.env.example backend/.env
 ```
 
-然后在 `backend/.env` 中填写你的 DeepSeek API Key：
+然后在 `backend/.env` 中填写 DeepSeek API Key，作为设置页未配置时的后备值：
 
 ```env
 LLM_API_KEY=sk-your-api-key-here
@@ -178,7 +180,7 @@ npm run dev
 http://localhost:5173
 ```
 
-打开页面后，输入英文段落并按 Enter，即可开始批注处理。
+打开页面后，先在“设置”页保存 DeepSeek API Key，再回到阅读页输入英文段落并按 Enter，即可开始批注处理。
 
 ## 配置参考
 
@@ -192,7 +194,7 @@ http://localhost:5173
 | `HOST`                         | `127.0.0.1`                    | 后端服务监听地址                   |
 | `PORT`                         | `8000`                         | 后端服务端口                       |
 | `VOCAB_DB_PATH`                | `./data/harry_potter_vocab.db` | SQLite 数据库路径                  |
-| `DATA_DIR`                     | `./data`                       | 数据目录                           |
+| `DATA_DIR`                     | `./data`                       | 数据目录，保存设置、生词本和阅读历史 |
 | `MAX_MASTERED_WORDS_IN_PROMPT` | `300`                          | 传入 prompt 的已掌握词数量上限     |
 
 完整示例：

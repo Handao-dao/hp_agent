@@ -1,14 +1,47 @@
 <script setup>
 // 根组件：全局背景 + Tab 导航栏 + <router-view> 页面出口
+import { useAppBusy } from './composables/useAppBusy'
+
+const { isAppBusy } = useAppBusy()
+
+function guardNavigation(event) {
+  if (!isAppBusy.value) return
+  event.preventDefault()
+}
 </script>
 
 <template>
   <div class="app-shell">
     <nav class="tab-bar">
       <div class="tab-inner">
-        <router-link to="/" class="tab-link" active-class="tab-active">阅读</router-link>
-        <router-link to="/vocabulary" class="tab-link" active-class="tab-active">生词本</router-link>
-        <router-link to="/history" class="tab-link" active-class="tab-active">历史记录</router-link>
+        <router-link
+          to="/"
+          class="tab-link"
+          active-class="tab-active"
+          :class="{ disabled: isAppBusy }"
+          @click="guardNavigation"
+        >阅读</router-link>
+        <router-link
+          to="/vocabulary"
+          class="tab-link"
+          active-class="tab-active"
+          :class="{ disabled: isAppBusy }"
+          @click="guardNavigation"
+        >生词本</router-link>
+        <router-link
+          to="/history"
+          class="tab-link"
+          active-class="tab-active"
+          :class="{ disabled: isAppBusy }"
+          @click="guardNavigation"
+        >历史记录</router-link>
+        <router-link
+          to="/settings"
+          class="tab-link"
+          active-class="tab-active"
+          :class="{ disabled: isAppBusy }"
+          @click="guardNavigation"
+        >设置</router-link>
       </div>
     </nav>
     <router-view />
@@ -119,6 +152,15 @@ body {
 
 .tab-link:hover {
   color: rgba(255, 244, 213, 0.95);
+}
+
+.tab-link.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tab-link.disabled:hover {
+  color: rgba(255, 244, 213, 0.7);
 }
 
 .tab-active {

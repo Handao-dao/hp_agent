@@ -4,6 +4,7 @@
  * - /            阅读页 (ReadingPage)
  * - /vocabulary  生词本 (VocabularyPage)
  * - /history     历史记录 (HistoryPage)
+ * - /settings    设置 (SettingsPage)
  */
 import { createRouter, createWebHistory } from 'vue-router'
 
@@ -22,6 +23,11 @@ const routes = [
     path: '/history',
     name: 'History',
     component: () => import('../views/HistoryPage.vue'),
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('../views/SettingsPage.vue'),
   },
 ]
 

@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import uuid
 from datetime import datetime, timedelta
 
@@ -32,6 +33,7 @@ from pydantic import BaseModel, Field
 from hp_agent.agent1 import AnnotatorService
 from hp_agent.agent2 import WordLookupService
 from hp_agent.prompt_profiles import PROFILE_PATTERN
+from hp_agent.settings_store import SettingsStore
 from hp_agent.sse_service import DocumentProcessor
 from hp_agent.utils import sse_event
 from hp_agent.vocab_db import VocabDB
@@ -67,15 +69,52 @@ app.add_middleware(
 # ==============================
 # 初始化服务
 # ==============================
-llm = HelloAgentsLLM()
-annotator_svc = AnnotatorService(llm)
-lookup_svc = WordLookupService(llm)
-doc_processor = DocumentProcessor(annotator_svc)
+data_dir = os.getenv("DATA_DIR", "./data")
+settings_store = SettingsStore(data_dir)
 vocab_db = VocabDB(os.getenv("VOCAB_DB_PATH", "./data/harry_potter_vocab.db"))
+
+service_lock = threading.RLock()
+llm: HelloAgentsLLM | None = None
+annotator_svc: AnnotatorService | None = None
+lookup_svc: WordLookupService | None = None
+doc_processor: DocumentProcessor | None = None
+
+
+def rebuild_llm_services():
+    global llm, annotator_svc, lookup_svc, doc_processor
+
+    settings = settings_store.get_effective_llm_settings()
+    if not settings.get("api_key"):
+        raise HTTPException(status_code=400, detail="请先在设置页配置 DeepSeek API Key")
+
+    with service_lock:
+        llm = HelloAgentsLLM(
+            model=settings["model_id"],
+            api_key=settings["api_key"],
+            base_url=settings["base_url"],
+            provider="deepseek",
+            temperature=settings["temperature"],
+            timeout=settings["timeout"],
+        )
+        annotator_svc = AnnotatorService(llm)
+        lookup_svc = WordLookupService(llm)
+        doc_processor = DocumentProcessor(annotator_svc)
+
+
+def ensure_llm_services():
+    if doc_processor and lookup_svc:
+        return
+    rebuild_llm_services()
 
 
 @app.on_event("startup")
 async def startup():
+    if settings_store.get_public_status()["configured"]:
+        try:
+            rebuild_llm_services()
+        except Exception:
+            logger.exception("初始化 LLM 服务失败，请检查 API Key 配置")
+
     async def periodic_cleanup():
         while True:
             await asyncio.sleep(300)
@@ -111,6 +150,13 @@ class AddVocabRequest(BaseModel):
     word: str = Field(..., description="生词")
     translation: str = Field(..., description="中文翻译")
     context: str = Field(default="", description="上下文句子")
+
+
+class SaveSettingsRequest(BaseModel):
+    api_key: str = Field(..., min_length=1, description="DeepSeek API Key")
+    base_url: str = Field(default="https://api.deepseek.com", description="OpenAI 兼容接口地址")
+    timeout: int = Field(default=60, ge=5, le=300, description="请求超时时间")
+    temperature: float = Field(default=0.2, ge=0, le=2, description="输出随机性")
 
 
 # ==============================
@@ -192,6 +238,22 @@ async def health_check():
     }
 
 
+@app.get("/api/settings")
+async def get_settings():
+    return settings_store.get_public_status()
+
+
+@app.post("/api/settings")
+async def save_settings(request: SaveSettingsRequest):
+    settings_store.save_llm_settings(
+        api_key=request.api_key,
+        base_url=request.base_url,
+        timeout=request.timeout,
+        temperature=request.temperature,
+    )
+    rebuild_llm_services()
+    return {"ok": True, **settings_store.get_public_status()}
+
 
 @app.post("/api/create-process-task")
 async def create_process_task(request: CreateProcessTaskRequest):
@@ -205,6 +267,8 @@ async def create_process_task(request: CreateProcessTaskRequest):
 
     if not text:
         raise HTTPException(status_code=400, detail="文本内容不能为空")
+
+    ensure_llm_services()
 
     
     task_id = str(uuid.uuid4())
@@ -266,6 +330,7 @@ async def delete_vocabulary(vocab_id: int):
 
 @app.post("/api/word-lookup")
 async def word_lookup(request: WordLookupRequest):
+    ensure_llm_services()
     result = await asyncio.to_thread(
         lookup_svc.lookup,
         request.word,
@@ -343,6 +408,7 @@ async def process_stream(task_id: str = Query(...)):
     text = task["text"]
     level = task.get("level", "intermediate")
     profile = task.get("profile", "general")
+    ensure_llm_services()
 
     async def event_generator():
         try:

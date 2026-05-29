@@ -12,12 +12,13 @@
  * - useReadingStream: SSE 连接 + 状态管理
  * - useMasteredWords:  已掌握词 Set（单例共享）
  */
-import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useReadingStream } from '../composables/useReadingStream'
 import { formatAnnotatedText } from '../utils/formatText'
 import { setMasteredByWord } from '../api/vocabulary'
 import { lookupWord, addVocabToDB } from '../api/lookup'
 import { addMasteredWord, useMasteredWords } from '../composables/useMasteredWords'
+import { useSettings } from '../composables/useSettings'
 
 const LEVEL_LABELS = { beginner: '初级', intermediate: '中级', advanced: '高级' }
 const PROFILE_LABELS = {
@@ -47,14 +48,30 @@ const {
   startProcessStream
 } = useReadingStream()
 
+const {
+  isConfigured,
+  loading: settingsLoading,
+  loadSettings,
+} = useSettings()
+
 const formattedHtml = computed(() => {
   return formatAnnotatedText(annotatedText.value, masteredWords.value, manuallyAnnotated.value)
+})
+
+const canSubmit = computed(() => {
+  return isConfigured.value && !isProcessing.value && Boolean(inputText.value.trim())
+})
+
+const inputPlaceholder = computed(() => {
+  if (settingsLoading.value) return '正在检查模型配置...'
+  if (!isConfigured.value) return '请先在设置页配置 DeepSeek API Key'
+  return '请输入需要翻译和标注的英文文本，按 Enter 开始处理，Shift + Enter 换行'
 })
 
 const handleSubmit = async () => {
   const text = inputText.value.trim()
 
-  if (!text || isProcessing.value) return
+  if (!text || isProcessing.value || !isConfigured.value) return
 
   await startProcessStream(text, level.value, profile.value)
   inputText.value = ''
@@ -129,6 +146,8 @@ function extractSentence(el) {
 }
 
 async function handleContentClick(e) {
+  if (isProcessing.value) return
+
   const wordEl = e.target.closest('[data-word]')
   if (!wordEl) {
     bubbleVisible.value = false
@@ -197,6 +216,7 @@ function handleEscKey(e) {
 }
 
 onMounted(() => {
+  loadSettings()
   document.addEventListener('keydown', handleEscKey)
 })
 
@@ -277,11 +297,20 @@ onBeforeUnmount(() => {
         {{ errorMessage }}
       </div>
 
+      <div
+        v-if="!settingsLoading && !isConfigured"
+        class="setup-message"
+      >
+        <span>请先配置 DeepSeek API Key 后再开始阅读标注。</span>
+        <router-link to="/settings">去设置</router-link>
+      </div>
+
       <!-- 阅读主体区：居中对齐，限制最大宽度以保证阅读视线不疲劳 -->
       <div class="reading-scroll-area">
         <div
           v-if="formattedHtml"
           class="reading-content"
+          :class="{ locked: isProcessing }"
           v-html="formattedHtml"
           @click="handleContentClick"
         ></div>
@@ -340,15 +369,15 @@ onBeforeUnmount(() => {
         <textarea
           v-model="inputText"
           class="text-input"
-          placeholder="请输入需要翻译和标注的英文文本，按 Enter 开始处理，Shift + Enter 换行"
+          :placeholder="inputPlaceholder"
           rows="2"
-          :disabled="isProcessing"
+          :disabled="isProcessing || settingsLoading || !isConfigured"
           @keydown="handleKeydown"
         ></textarea>
 
         <button
           class="send-button"
-          :disabled="isProcessing || !inputText.trim()"
+          :disabled="!canSubmit"
           @click="handleSubmit"
         >
           {{ isProcessing ? '处理中' : '发送' }}
@@ -488,6 +517,27 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
+.setup-message {
+  margin: 16px 28px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(111, 72, 28, 0.08);
+  color: #6c4b24;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  font-size: 14px;
+  font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.setup-message a {
+  color: #5a3417;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 /* 阅读区滚动容器 */
 .reading-scroll-area {
   flex: 1;
@@ -504,6 +554,11 @@ onBeforeUnmount(() => {
   line-height: 2;
   color: #2f2112;
   word-break: break-word;
+}
+
+.reading-content.locked {
+  cursor: wait;
+  pointer-events: none;
 }
 
 /* 保证段落间距留白 */

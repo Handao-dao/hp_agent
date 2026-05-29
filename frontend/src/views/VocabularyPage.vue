@@ -597,12 +597,6 @@ onBeforeUnmount(() => {
   border-color: rgba(180, 42, 42, 0.25);
 }
 
-/* ---- 已掌握行 ---- */
-.mastered-row .row-word {
-  color: #4a3828;
-  font-weight: 500;
-}
-
 /* ---- 批量操作栏 ---- */
 .batch-bar {
   display: flex;
